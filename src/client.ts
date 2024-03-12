@@ -175,17 +175,17 @@ export class ComfyUIClient {
     filename: string,
     subfolder: string,
     type: string,
-  ): Promise<Blob> {
+  ): Promise<Buffer> {
     const res = await axios.get(`${this.protocol}://${this.serverAddress}/view`, {
       params: {
         filename,
         subfolder,
         type,
       },
-      responseType: 'blob',
+      responseType: 'arraybuffer',
     });
-
-    return res.data;
+  
+    return Buffer.from(res.data);
   }
 
   async viewMetadata(
@@ -239,69 +239,68 @@ export class ComfyUIClient {
   async saveImages(response: ImagesResponse, outputDir: string) {
     for (const nodeId of Object.keys(response)) {
       for (const img of response[nodeId]) {
-        const arrayBuffer = await img.blob.arrayBuffer();
-
         const outputPath = join(outputDir, img.image.filename);
-        await writeFile(outputPath, Buffer.from(arrayBuffer));
+        await writeFile(outputPath, img.buffer);
       }
     }
   }
 
+  
   async getImages(prompt: Prompt): Promise<ImagesResponse> {
     if (!this.ws) {
       throw new Error(
         'WebSocket client is not connected. Please call connect() before interacting.',
       );
     }
-
+  
     const queue = await this.queuePrompt(prompt);
     const promptId = queue.prompt_id;
-
+  
     return new Promise<ImagesResponse>((resolve, reject) => {
       const outputImages: ImagesResponse = {};
-
+  
       const onMessage = async (data: WebSocket.RawData, isBinary: boolean) => {
         // Previews are binary data
         if (isBinary) {
           return;
         }
-
+  
         try {
           const message = JSON.parse(data.toString());
           if (message.type === 'executing') {
             const messageData = message.data;
             if (!messageData.node) {
               const donePromptId = messageData.prompt_id;
-
+  
               logger.info(`Done executing prompt (ID: ${donePromptId})`);
-
+  
               // Execution is done
               if (messageData.prompt_id === promptId) {
                 // Get history
                 const historyRes = await this.getHistory(promptId);
                 const history = historyRes[promptId];
-
+  
                 // Populate output images
                 for (const nodeId of Object.keys(history.outputs)) {
                   const nodeOutput = history.outputs[nodeId];
                   if (nodeOutput.images) {
                     const imagesOutput: ImageContainer[] = [];
                     for (const image of nodeOutput.images) {
-                      const blob = await this.getImage(
+                      const buffer = await this.getImage(
                         image.filename,
                         image.subfolder,
                         image.type,
                       );
                       imagesOutput.push({
-                        blob,
+                        buffer,
                         image,
                       });
                     }
-
+  
                     outputImages[nodeId] = imagesOutput;
                   }
                 }
-
+  
                 // Remove listener
                 this.ws?.off('message', onMessage);
                 return resolve(outputImages);
@@ -312,7 +311,7 @@ export class ComfyUIClient {
           return reject(err);
         }
       };
-
+  
       // Add listener
       this.ws?.on('message', onMessage);
     });

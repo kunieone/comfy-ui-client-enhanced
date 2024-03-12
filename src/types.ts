@@ -63,7 +63,7 @@ export interface OutputImage {
 }
 
 export interface ImageContainer {
-  blob: Blob;
+  buffer: Buffer;
   image: OutputImage;
 }
 
