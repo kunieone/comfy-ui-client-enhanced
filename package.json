@@ -1,6 +1,6 @@
 {
   "name": "comfy-ui-client-enhanced",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "packageManager": "pnpm@7.5.0",
   "engines": {
     "node": ">=18.0.0"
