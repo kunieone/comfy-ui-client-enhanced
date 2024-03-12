@@ -6,11 +6,11 @@
     "node": ">=18.0.0"
   },
   "description": "WebSockets API client for ComfyUI",
-  "author": "Punnawut Khowkittipaiboon <me@itskaynine.com>",
+  "author": "starevan <kunieone@163.com>",
   "license": "MIT",
-  "homepage": "https://github.com/itsKaynine/comfy-ui-client",
+  "homepage": "https://github.com/kunieone/comfy-ui-client-enhanced",
   "repository": "github:itsKaynine/comfy-ui-client",
-  "bugs": "https://github.com/itsKaynine/comfy-ui-client/issues",
+  "bugs": "https://github.com/kunieone/comfy-ui-client-enhanced/issues",
   "keywords": [
     "comfy-ui",
     "comfy-ui node",
