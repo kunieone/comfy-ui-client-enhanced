@@ -1,3 +1,4 @@
+import axios, { AxiosRequestConfig } from 'axios';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 
@@ -30,21 +31,29 @@ const logger = pino({
 export class ComfyUIClient {
   public serverAddress: string;
   public clientId: string;
+  public useHttps: boolean;
+  public useWss: boolean;
 
   protected ws?: WebSocket;
+  protected protocol: 'http' | 'https';
+  protected wsProtocol: 'ws' | 'wss';
 
-  constructor(serverAddress: string, clientId: string) {
+  constructor(serverAddress: string, clientId: string, useHttps = false, useWss = false) {
     this.serverAddress = serverAddress;
     this.clientId = clientId;
+    this.useHttps = useHttps;
+    this.useWss = useWss;
+    this.protocol = useHttps ? 'https' : 'http';
+    this.wsProtocol = useWss ? 'wss' : 'ws';
   }
 
-  connect() {
-    return new Promise<void>(async (resolve) => {
+  connect(timeout?: number, onTimeout?: () => void) {
+    return new Promise<void>(async (resolve, reject) => {
       if (this.ws) {
         await this.disconnect();
       }
 
-      const url = `ws://${this.serverAddress}/ws?clientId=${this.clientId}`;
+      const url = `${this.wsProtocol}://${this.serverAddress}/ws?clientId=${this.clientId}`;
 
       logger.info(`Connecting to url: ${url}`);
 
@@ -52,8 +61,15 @@ export class ComfyUIClient {
         perMessageDeflate: false,
       });
 
+      const timeoutId = timeout && setTimeout(() => {
+        this.disconnect();
+        onTimeout && onTimeout();
+        reject(new Error('Connection timeout'));
+      }, timeout);
+
       this.ws.on('open', () => {
         logger.info('Connection open');
+        timeoutId && clearTimeout(timeoutId);
         resolve();
       });
 
@@ -63,6 +79,7 @@ export class ComfyUIClient {
 
       this.ws.on('error', (err) => {
         logger.error({ err }, 'WebSockets error');
+        reject(err);
       });
 
       this.ws.on('message', (data, isBinary) => {
@@ -83,82 +100,31 @@ export class ComfyUIClient {
   }
 
   async getEmbeddings(): Promise<string[]> {
-    const res = await fetch(`http://${this.serverAddress}/embeddings`);
-
-    const json: string[] | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    const res = await axios.get(`${this.protocol}://${this.serverAddress}/embeddings`);
+    return res.data;
   }
 
   async getExtensions(): Promise<string[]> {
-    const res = await fetch(`http://${this.serverAddress}/extensions`);
-
-    const json: string[] | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    const res = await axios.get(`${this.protocol}://${this.serverAddress}/extensions`);
+    return res.data;
   }
 
   async queuePrompt(prompt: Prompt): Promise<QueuePromptResult> {
-    const res = await fetch(`http://${this.serverAddress}/prompt`, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        client_id: this.clientId,
-      }),
+    const res = await axios.post(`${this.protocol}://${this.serverAddress}/prompt`, {
+      prompt,
+      client_id: this.clientId,
     });
-
-    const json: QueuePromptResult | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    return res.data;
   }
 
   async interrupt(): Promise<void> {
-    const res = await fetch(`http://${this.serverAddress}/interrupt`, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-
-    const json: QueuePromptResult | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
+    const res = await axios.post(`${this.protocol}://${this.serverAddress}/interrupt`);
+    return res.data;
   }
 
   async editHistory(params: EditHistoryRequest): Promise<void> {
-    const res = await fetch(`http://${this.serverAddress}/history`, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params),
-    });
-
-    const json: QueuePromptResult | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
+    const res = await axios.post(`${this.protocol}://${this.serverAddress}/history`, params);
+    return res.data;
   }
 
   async uploadImage(
@@ -173,18 +139,13 @@ export class ComfyUIClient {
       formData.append('overwrite', overwrite.toString());
     }
 
-    const res = await fetch(`http://${this.serverAddress}/upload/image`, {
-      method: 'POST',
-      body: formData,
+    const res = await axios.post(`${this.protocol}://${this.serverAddress}/upload/image`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
 
-    const json: UploadImageResult | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    return res.data;
   }
 
   async uploadMask(
@@ -201,18 +162,13 @@ export class ComfyUIClient {
       formData.append('overwrite', overwrite.toString());
     }
 
-    const res = await fetch(`http://${this.serverAddress}/upload/mask`, {
-      method: 'POST',
-      body: formData,
+    const res = await axios.post(`${this.protocol}://${this.serverAddress}/upload/mask`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
 
-    const json: UploadImageResult | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    return res.data;
   }
 
   async getImage(
@@ -220,99 +176,64 @@ export class ComfyUIClient {
     subfolder: string,
     type: string,
   ): Promise<Blob> {
-    const res = await fetch(
-      `http://${this.serverAddress}/view?` +
-        new URLSearchParams({
-          filename,
-          subfolder,
-          type,
-        }),
-    );
+    const res = await axios.get(`${this.protocol}://${this.serverAddress}/view`, {
+      params: {
+        filename,
+        subfolder,
+        type,
+      },
+      responseType: 'blob',
+    });
 
-    const blob = await res.blob();
-    return blob;
+    return res.data;
   }
 
   async viewMetadata(
     folderName: FolderName,
     filename: string,
   ): Promise<ViewMetadataResponse> {
-    const res = await fetch(
-      `http://${this.serverAddress}/view_metadata/${folderName}?filename=${filename}`,
-    );
-
-    const json: ViewMetadataResponse | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
+    try {
+      const res = await axios.get(
+        `${this.protocol}://${this.serverAddress}/view_metadata/${folderName}?filename=${filename}`,
+      );
+      return res.data;
+    } catch (err: any) {
+      if (err.response && err.response.data) {
+        throw new Error(JSON.stringify(err.response.data));
+      } else {
+        throw err;
+      }
     }
-
-    return json;
   }
 
   async getSystemStats(): Promise<SystemStatsResponse> {
-    const res = await fetch(`http://${this.serverAddress}/system_stats`);
-
-    const json: SystemStatsResponse | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    const res = await axios.get(`${this.protocol}://${this.serverAddress}/system_stats`);
+    return res.data;
   }
 
   async getPrompt(): Promise<PromptQueueResponse> {
-    const res = await fetch(`http://${this.serverAddress}/prompt`);
-
-    const json: PromptQueueResponse | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    const res = await axios.get(`${this.protocol}://${this.serverAddress}/prompt`);
+    return res.data;
   }
 
   async getObjectInfo(nodeClass?: string): Promise<ObjectInfoResponse> {
-    const res = await fetch(
-      `http://${this.serverAddress}/object_info` +
+    const res = await axios.get(
+      `${this.protocol}://${this.serverAddress}/object_info` +
         (nodeClass ? `/${nodeClass}` : ''),
     );
-
-    const json: ObjectInfoResponse | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    return res.data;
   }
 
   async getHistory(promptId?: string): Promise<HistoryResult> {
-    const res = await fetch(
-      `http://${this.serverAddress}/history` + (promptId ? `/${promptId}` : ''),
+    const res = await axios.get(
+      `${this.protocol}://${this.serverAddress}/history` + (promptId ? `/${promptId}` : ''),
     );
-
-    const json: HistoryResult | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    return res.data;
   }
 
   async getQueue(): Promise<QueueResponse> {
-    const res = await fetch(`http://${this.serverAddress}/queue`);
-
-    const json: QueueResponse | ResponseError = await res.json();
-
-    if ('error' in json) {
-      throw new Error(JSON.stringify(json));
-    }
-
-    return json;
+    const res = await axios.get(`${this.protocol}://${this.serverAddress}/queue`);
+    return res.data;
   }
 
   async saveImages(response: ImagesResponse, outputDir: string) {
