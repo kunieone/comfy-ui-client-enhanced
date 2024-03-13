@@ -134,7 +134,7 @@ export class ComfyUIClient {
     overwrite?: boolean,
   ): Promise<UploadImageResult> {
     const formData = new FormData();
-    formData.append('image', new Blob([image]), filename);
+    formData.append('image', Buffer.from(image), filename);
 
     if (overwrite !== undefined) {
       formData.append('overwrite', overwrite.toString());
@@ -156,7 +156,7 @@ export class ComfyUIClient {
     overwrite?: boolean,
   ): Promise<UploadImageResult> {
     const formData = new FormData();
-    formData.append('image', new Blob([image]), filename);
+    formData.append('image', Buffer.from(image), filename);
     formData.append('originalRef', JSON.stringify(originalRef));
 
     if (overwrite !== undefined) {
